@@ -5,30 +5,32 @@ class Kohana_SGMail
     public $mail;
     public $config;
     private $_from;
-    private $_to;
-    private $_cc;
-    private $_bcc;
+    private $_to = array();
+    private $_cc = array();
+    private $_bcc = array();
     private $_content_text;
     private $_content_html;
     private $_subject;
     private $_reply_to;
     private $_template_id;
-    private $_attachment;
+    private $_attachment = array();
     private $_substitution = array();
+    private $_custom_arg = array();
+    private $_header = array();
     private $sg;
     private $has_from = FALSE;
     private $has_to = FALSE;
 
     public static function instance()
     {
-		return new self();
+        return new self();
     }
 
     public function __construct()
     {
         $this->config = Kohana::$config->load('sgmail');
         $this->sg = new \SendGrid($this->config->api_key);
-	}
+    }
 
     public function from($name, $email)
     {
@@ -41,7 +43,7 @@ class Kohana_SGMail
 
     public function to($name, $email)
     {
-        $this->_to = new \SendGrid\Email($name, $email);
+        $this->_to[] = new \SendGrid\Email($name, $email);
 
         $this->has_to = TRUE;
 
@@ -50,14 +52,14 @@ class Kohana_SGMail
 
     public function cc($name, $email)
     {
-        $this->_cc = new \SendGrid\Email($name, $email);
+        $this->_cc[] = new \SendGrid\Email($name, $email);
 
         return $this;
     }
 
     public function bcc($name, $email)
     {
-        $this->_bcc = new \SendGrid\Email($name, $email);
+        $this->_bcc[] = new \SendGrid\Email($name, $email);
 
         return $this;
     }
@@ -108,6 +110,36 @@ class Kohana_SGMail
         return $this;
     }
 
+    public function custom_arg($key, $value = '')
+    {
+        if (is_array($key))
+        {
+            foreach($key as $k => $v)
+                $this->_custom_arg[$k] = $v;
+        }
+        else
+        {
+            $this->_custom_arg[$key] = $value;
+        }
+
+        return $this;
+    }
+
+    public function header($key, $value = '')
+    {
+        if (is_array($key))
+        {
+            foreach($key as $k => $v)
+                $this->_header[$k] = $v;
+        }
+        else
+        {
+            $this->_header[$key] = $value;
+        }
+
+        return $this;
+    }
+
     public function attachment($file, $filename = '')
     {
         $content = file_get_contents($file);
@@ -121,7 +153,7 @@ class Kohana_SGMail
         $attachment->setDisposition('attachment');
         $attachment->setFilename($filename);
 
-        $this->_attachment = $attachment;
+        $this->_attachment[] = $attachment;
 
         return $this;
     }
@@ -145,7 +177,10 @@ class Kohana_SGMail
         if ( ! $this->_content_html)
             $this->content('&nbsp;');
 
-        $this->mail = new \SendGrid\Mail($this->_from, $this->_subject, $this->_to, $this->_content_html);
+        $to = array_shift($this->_to);
+
+        $this->mail = new \SendGrid\Mail($this->_from, $this->_subject, $to, $this->_content_html);
+        $this->mail->setSendAt(time());
 
         if ($this->_reply_to)
             $this->mail->setReplyTo($this->_reply_to);
@@ -156,25 +191,31 @@ class Kohana_SGMail
         if ($this->_template_id)
             $this->mail->setTemplateId($this->_template_id);
 
-        if ($this->_attachment)
-            $this->mail->addAttachment($this->_attachment);
+        foreach($this->_attachment as $attachment)
+            $this->mail->addAttachment($attachment);
 
         $personalization = $this->mail->getPersonalizations();
         $personalization = $personalization[0];
 
         if ($personalization)
         {
-            if ($this->_cc)
-                $personalization->addCc($this->_cc);
+            foreach($this->_to as $email)
+                $personalization->addTo($email);
 
-            if ($this->_bcc)
-                $personalization->addBcc($this->_bcc);
+            foreach($this->_cc as $email)
+                $personalization->addCc($email);
 
-            if ( ! empty($this->_substitution))
-            {
-                foreach($this->_substitution as $k => $v)
-                    $personalization->addSubstitution($k, $v);
-            }
+            foreach($this->_bcc as $email)
+                $personalization->addBcc($email);
+
+            foreach($this->_substitution as $k => $v)
+                $personalization->addSubstitution($k, $v);
+
+            foreach($this->_custom_arg as $k => $v)
+                $personalization->addCustomArg($k, $v);
+
+            foreach($this->_header as $k => $v)
+                $personalization->addHeader($k, $v);
         }
 
         $response = $this->sg->client->mail()->send()->post($this->mail);
