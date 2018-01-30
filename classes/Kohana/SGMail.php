@@ -3,8 +3,18 @@
 class Kohana_SGMail
 {
     public $mail;
-    public $personalization;
     public $config;
+    private $_from;
+    private $_to;
+    private $_cc;
+    private $_bcc;
+    private $_content_text;
+    private $_content_html;
+    private $_subject;
+    private $_reply_to;
+    private $_template_id;
+    private $_attachment;
+    private $_substitution = array();
     private $sg;
     private $has_from = FALSE;
     private $has_to = FALSE;
@@ -17,16 +27,12 @@ class Kohana_SGMail
     public function __construct()
     {
         $this->config = Kohana::$config->load('sgmail');
-
         $this->sg = new \SendGrid($this->config->api_key);
-        $this->mail = new \SendGrid\Mail();
-        $this->personalization = new SendGrid\Personalization();
 	}
 
     public function from($name, $email)
     {
-        $email = new \SendGrid\Email($name, $email);
-        $this->mail->setFrom($email);
+        $this->_from = new \SendGrid\Email($name, $email);
 
         $this->has_from = TRUE;
 
@@ -35,8 +41,7 @@ class Kohana_SGMail
 
     public function to($name, $email)
     {
-        $email = new SendGrid\Email($name, $email);
-        $this->personalization->addTo($email);
+        $this->_to = new \SendGrid\Email($name, $email);
 
         $this->has_to = TRUE;
 
@@ -45,31 +50,28 @@ class Kohana_SGMail
 
     public function cc($name, $email)
     {
-        $email = new SendGrid\Email($name, $email);
-        $this->personalization->addCc($email);
+        $this->_cc = new \SendGrid\Email($name, $email);
 
         return $this;
     }
 
     public function bcc($name, $email)
     {
-        $email = new SendGrid\Email($name, $email);
-        $this->personalization->addBcc($email);
+        $this->_bcc = new \SendGrid\Email($name, $email);
 
         return $this;
     }
 
     public function replyTo($name, $email)
     {
-        $email = new SendGrid\Email($name, $email);
-        $this->mail->setReplyTo($email);
+        $this->_reply_to = new SendGrid\Email($name, $email);
 
         return $this;
     }
 
     public function subject($value)
     {
-        $this->mail->setSubject($value);
+        $this->_subject = $value;
 
         return $this;
     }
@@ -77,20 +79,16 @@ class Kohana_SGMail
     public function content($html, $text = '')
     {
         if ( ! empty($text))
-        {
-            $content = new SendGrid\Content('text/plain', $text);
-            $this->mail->addContent($content);
-        }
+            $this->_content_text = new SendGrid\Content('text/plain', $html);
 
-        $content = new SendGrid\Content('text/html', $html);
-        $this->mail->addContent($content);
+        $this->_content_html = new SendGrid\Content('text/html', $html);
 
         return $this;
     }
 
     public function template($id)
     {
-        $this->mail->setTemplateId($id);
+        $this->_template_id = $id;
 
         return $this;
     }
@@ -100,11 +98,11 @@ class Kohana_SGMail
         if (is_array($key))
         {
             foreach($key as $k => $v)
-                $this->personalization->addSubstitution($k, $v);
+                $this->_substitution[$k] = $v;
         }
         else
         {
-            $this->personalization->addSubstitution($key, $value);
+            $this->_substitution[$key] = $value;
         }
 
         return $this;
@@ -122,7 +120,8 @@ class Kohana_SGMail
         $attachment->setType(File::mime_by_ext(pathinfo($file, PATHINFO_EXTENSION)));
         $attachment->setDisposition('attachment');
         $attachment->setFilename($filename);
-        $this->mail->addAttachment($attachment);
+
+        $this->_attachment = $attachment;
 
         return $this;
     }
@@ -143,7 +142,40 @@ class Kohana_SGMail
             $this->to($sender->from->name, $sender->from->email);
         }
 
-        $this->mail->addPersonalization($this->personalization);
+        if ( ! $this->_content_html)
+            $this->content('&nbsp;');
+
+        $this->mail = new \SendGrid\Mail($this->_from, $this->_subject, $this->_to, $this->_content_html);
+
+        if ($this->_reply_to)
+            $this->mail->setReplyTo($this->_reply_to);
+
+        if ($this->_content_text)
+            $this->mail->addContent($this->_content_text);
+
+        if ($this->_template_id)
+            $this->mail->setTemplateId($this->_template_id);
+
+        if ($this->_attachment)
+            $this->mail->addAttachment($this->_attachment);
+
+        $personalization = $this->mail->getPersonalizations();
+        $personalization = $personalization[0];
+
+        if ($personalization)
+        {
+            if ($this->_cc)
+                $personalization->addCc($this->_cc);
+
+            if ($this->_bcc)
+                $personalization->addBcc($this->_bcc);
+
+            if ( ! empty($this->_substitution))
+            {
+                foreach($this->_substitution as $k => $v)
+                    $personalization->addSubstitution($k, $v);
+            }
+        }
 
         $response = $this->sg->client->mail()->send()->post($this->mail);
 
