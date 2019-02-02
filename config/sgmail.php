@@ -2,6 +2,5 @@
 
 return array(
     'api_key' => '',
-    'sender_id' => '',
-    'sender_to_id' => ''
+    'sender_nickname' => ''
 );

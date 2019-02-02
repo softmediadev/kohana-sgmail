@@ -4,4 +4,4 @@
  * @author    softmediadev https://github.com/softmediadev/
 */
  
-require Kohana::find_file('vendor', 'vendor/autoload');
+require Kohana::find_file('vendor', 'sendgrid/autoload');
